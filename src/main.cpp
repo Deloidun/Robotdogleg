@@ -171,9 +171,7 @@ std::vector<float> splitStringToFloats(const std::string& input, const std::stri
 
 void loop() {
    // Calculate current angles from encoders
-  currentAngle1 = (encoder1.getCount()  * 360.0) / stepsPerRevolution;
-  currentAngle2 = (encoder2.getCount()  * 360.0) / stepsPerRevolution;
-  currentAngle3 = (encoder3.getCount()  * 360.0) / stepsPerRevolution;
+  
 
   //////////////////////////////////////////////////////
   // if (Serial.available() > 0) {
@@ -200,7 +198,7 @@ void loop() {
   //////////////////////////////////RECEIVE DATA NEED FIX////////////////////
 
   Serial.println("Enter the number of columns: ");
-  while (Serial.available() == 0) {
+  if (Serial.available() == 0) {
       ; // Wait for user input
   }
   numberPos = Serial.parseInt();
@@ -212,22 +210,22 @@ void loop() {
   }
 
 
-  ///////////////////////////////////////////// For testing only////////////////////////////////////
-  // srand((unsigned)time(NULL));
-  // for (int i = 0; i < rows; i++) {
-  //     for (int j = 0; j < numberPos; j++) {
-  //         float random_num = (float)(rand() % 2500) / 100.0; // Random float between 0.00 and 24.99
-  //         arr[i][j] = random_num;
-  //     }
-  // }
-  // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // Serial.println("Original Array:");
-  // for (int i = 0; i < rows; i++) {
-  //     for (int j = 0; j < numberPos; j++) {
-  //         Serial.printf("%.2f\t", arr[i][j]);
-  //     }
-  //     Serial.println();
-  // }
+  /////////////////////////////////////////// For testing only////////////////////////////////////
+  srand((unsigned)time(NULL));
+  for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < numberPos; j++) {
+          float random_num = (float)(rand() % 1000) / 100.0; // Random float between 0.00 and 24.99
+          arr[i][j] = random_num;
+      }
+  }
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  Serial.println("Original Array:");
+  for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < numberPos; j++) {
+          Serial.printf("%.2f\t", arr[i][j]);
+      }
+      Serial.println();
+  }
 
   // test only
   // float arr[3][2];
@@ -283,17 +281,51 @@ void loop() {
   if (isArrayPopulated) {
     // Print motor values
     for (int i = 0; i < numberPos; i++) {
-      if(currentAngle1 == setpoint1 && currentAngle2 == setpoint2 && currentAngle3 == setpoint3 ){
+      //if(currentAngle1 == setpoint1 && currentAngle2 == setpoint2 && currentAngle3 == setpoint3 ){
         setpoint1 = storepos[0][i];
         setpoint2 = storepos[1][i];
         setpoint3 = storepos[2][i];
-      }
-        Serial.printf("motor 1: %.2f\t", setpoint1);
-        Serial.printf("motor 2: %.2f\t", setpoint2);
-        Serial.printf("motor 3: %.2f\n", setpoint3);
+      //}
+      while (currentAngle1 != setpoint1 || currentAngle2 != setpoint2 || currentAngle3 != setpoint3) {
+                if (currentAngle1 < setpoint1) currentAngle1 += 0.01;
+                else if (currentAngle1 > setpoint1) currentAngle1 -= 0.01;
+
+                if (currentAngle2 < setpoint2) currentAngle2 += 0.01;
+                else if (currentAngle2 > setpoint2) currentAngle2 -= 0.01;
+
+                if (currentAngle3 < setpoint3) currentAngle3 += 0.01;
+                else if (currentAngle3 > setpoint3) currentAngle3 -= 0.01;
+        
+                // Update PID inputs
+                pid1.Compute();
+                pid2.Compute();
+                pid3.Compute();
+
+                // Set the motor speeds using PWM
+                setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
+                setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
+                setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+
+                Serial.printf("currentAngle 1: %.2f\t", currentAngle1);
+                Serial.printf("currentAngle 2: %.2f\t", currentAngle2);
+                Serial.printf("currentAngle 3: %.2f\n", currentAngle3);
+
+                Serial.printf("setpoint 1: %.2f\t", setpoint1);
+                Serial.printf("setpoint 2: %.2f\t", setpoint2);
+                Serial.printf("setpoint 3: %.2f\n", setpoint3);
+
+                delay(10); // Simulate time for the motors to reach the target angles
+            }
+        
     }
 
     // Free allocated memory
+    for (int i = 0; i < rows; i++) {
+        free(arr[i]);
+    }
+    free(arr);
+
+
     for (int i = 0; i < rows; i++) {
         free(storepos[i]);
     }
@@ -303,17 +335,9 @@ void loop() {
   } else {
       // Wait until the array receives values
       Serial.println("Not populated");
-      delay(1000);
+      delay(500);
   }
 
-  // Update PID inputs
-  pid1.Compute();
-  pid2.Compute();
-  pid3.Compute();
-
-  // Set the motor speeds using PWM
-  setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
-  setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
-  setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+  
 }
 
