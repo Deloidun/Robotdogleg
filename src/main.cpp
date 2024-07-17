@@ -7,41 +7,40 @@
 #include <string>
 #include <stdlib.h>
 #include <time.h>
-
-//std::vector<float> splitStringToFloats(const std::string& input, const std::string& delimiter);
-
+#include <Wire.h>
+#include <MPU6050.h>
 
 int i, j;
 float random_num;
-int numberPos = 3; // this will be change with the matlab
+int numberPos = 0; // this will be changed with MATLAB
 int rows = 3;
 bool isArrayPopulated = false;
+const int toler = 4;
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
 
 // Constants for PID control for each motor
-const double Kp1 = 30;  // Proportional gain for motor 1
+const double Kp1 = 5;  // Proportional gain for motor 1
 const double Ki1 = 0.0;  // Integral gain for motor 1
-const double Kd1 = 0.01;  // Derivative gain for motor 1
+const double Kd1 = 0.0;  // Derivative gain for motor 1
 
-const double Kp2 = 30;  // Proportional gain for motor 2
+const double Kp2 = 5;  // Proportional gain for motor 2
 const double Ki2 = 0.0;  // Integral gain for motor 2
-const double Kd2 = 0.01;  // Derivative gain for motor 2
+const double Kd2 = 0.0;  // Derivative gain for motor 2
 
-const double Kp3 = 30;  // Proportional gain for motor 3
+const double Kp3 = 5;  // Proportional gain for motor 3
 const double Ki3 = 0.0;  // Integral gain for motor 3
-const double Kd3 = 0.01;  // Derivative gain for motor 3
+const double Kd3 = 0.0;  // Derivative gain for motor 3
 
 // Variables for PID control
 double setpoint1 = 0.0, setpoint2 = 0.0, setpoint3 = 0.0;
 double currentAngle1 = 0.0, currentAngle2 = 0.0, currentAngle3 = 0.0;
 double motorSpeed1 = 0.0, motorSpeed2 = 0.0, motorSpeed3 = 0.0;
-double prevError1 = 0.0, prevError2 = 0.0, prevError3 = 0.0;
-double integral1 = 0.0, integral2 = 0.0, integral3 = 0.0;
 
 // PID controllers
 PID pid1(&currentAngle1, &motorSpeed1, &setpoint1, Kp1, Ki1, Kd1, DIRECT);
 PID pid2(&currentAngle2, &motorSpeed2, &setpoint2, Kp2, Ki2, Kd2, DIRECT);
 PID pid3(&currentAngle3, &motorSpeed3, &setpoint3, Kp3, Ki3, Kd3, DIRECT);
-
 
 // Pins for encoder channels
 #define ENCODER_A_PIN1 39
@@ -61,46 +60,84 @@ PID pid3(&currentAngle3, &motorSpeed3, &setpoint3, Kp3, Ki3, Kd3, DIRECT);
 
 ESP32Encoder encoder1, encoder2, encoder3;
 
+MPU6050 mpu;
+
 // Encoder resolution (steps per revolution)
-const int stepsPerRevolution = 44*30;  // Replace with your encoder's resolution
+const int stepsPerRevolution =  11 * 30;  // Replace with your encoder's resolution
+
+float storepos[3][300];
+
+volatile int encoder1Count = 0;
+volatile int encoder2Count = 0;
+volatile int encoder3Count = 0;
+volatile bool encoder1Flag = false;
+volatile bool encoder2Flag = false;
+volatile bool encoder3Flag = false;
+
+// Function to set the DLPF mode of the MPU6050
+void setDLPFMode(uint8_t mode) {
+  // Set the DLPF mode of the MPU6050
+  Wire.beginTransmission(MPU6050_DEFAULT_ADDRESS);
+  Wire.write(0x1A); // DLPF_CFG register
+  Wire.write(mode);
+  Wire.endTransmission(true);
+}
 
 // Interrupt service routines for encoder channels
 void IRAM_ATTR encoderA_ISR1() {
   if (digitalRead(ENCODER_B_PIN1) == HIGH) {
-    encoder1.setCount(encoder1.getCount() + 1);
+    encoder1Count++;
   } else {
-    encoder1.setCount(encoder1.getCount() - 1);
+    encoder1Count--;
   }
+  encoder1Flag = true;
 }
 
 void IRAM_ATTR encoderA_ISR2() {
   if (digitalRead(ENCODER_B_PIN2) == HIGH) {
-    encoder2.setCount(encoder2.getCount() + 1);
+    encoder2Count++;
   } else {
-    encoder2.setCount(encoder2.getCount() - 1);
+    encoder2Count--;
   }
+  encoder2Flag = true;
 }
 
 void IRAM_ATTR encoderA_ISR3() {
   if (digitalRead(ENCODER_B_PIN3) == HIGH) {
-    encoder3.setCount(encoder3.getCount() + 1);
+    encoder3Count++;
   } else {
-    encoder3.setCount(encoder3.getCount() - 1);
+    encoder3Count--;
   }
+  encoder3Flag = true;
 }
 
 void setup() {
   // Initialize Serial communication
   Serial.begin(115200);
+  
 
-   while (!Serial) {
-        ; // wait for serial port to connect. Needed for native USB port only
-    }
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
 
+  // IMU Initialization
+  Wire.begin();
+  mpu.initialize();
+
+  if (!mpu.testConnection()) {
+    // Serial.println("MPU6050 connection failed");
+    while (1);
+  }
+
+  // Set the DLPF mode
+  setDLPFMode(MPU6050_DLPF_BW_5);
+
+  // Serial.println("MPU6050 connected successfully");
+  
   // Initialize encoders
-  encoder1.attachFullQuad(ENCODER_A_PIN1, ENCODER_B_PIN1);
-  encoder2.attachFullQuad(ENCODER_A_PIN2, ENCODER_B_PIN2);
-  encoder3.attachFullQuad(ENCODER_A_PIN3, ENCODER_B_PIN3);
+  encoder1.attachHalfQuad(ENCODER_A_PIN1, ENCODER_B_PIN1);
+  encoder2.attachHalfQuad(ENCODER_A_PIN2, ENCODER_B_PIN2);
+  encoder3.attachHalfQuad(ENCODER_A_PIN3, ENCODER_B_PIN3);
 
   // Initialize motor control pins
   pinMode(MOTOR_PIN1_1, OUTPUT);
@@ -118,9 +155,9 @@ void setup() {
   pinMode(ENCODER_B_PIN3, INPUT_PULLUP);
 
   // Attach interrupts for encoder channels
-  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN1), encoderA_ISR1, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN2), encoderA_ISR2, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN3), encoderA_ISR3, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN1), encoderA_ISR1, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN2), encoderA_ISR2, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN3), encoderA_ISR3, RISING);
 
   // Set PID parameters
   pid1.SetMode(AUTOMATIC);
@@ -136,7 +173,6 @@ void setup() {
   pid3.SetOutputLimits(-255, 255);
 }
 
-
 void setMotorSpeed(int pin1, int pin2, double speed) {
   if (speed > 0) {
     analogWrite(pin1, speed);
@@ -148,196 +184,144 @@ void setMotorSpeed(int pin1, int pin2, double speed) {
 }
 
 std::vector<float> splitStringToFloats(const std::string& input, const std::string& delimiter) {
-    std::vector<float> result;
-    std::istringstream iss(input);
-    std::string token;
+  std::vector<float> result;
+  std::istringstream iss(input);
+  std::string token;
 
-    // Parse the input string
-    while (getline(iss, token, ',')) {
-        // Remove any leading or trailing spaces
-        size_t start = token.find_first_not_of(' ');
-        size_t end = token.find_last_not_of(' ');
-        if (start != std::string::npos && end != std::string::npos) {
-            token = token.substr(start, end - start + 1);
-        }
-
-        // Convert the string token to float
-        float value = std::stof(token);
-        result.push_back(value);
+  // Parse the input string
+  while (getline(iss, token, ',')) {
+    // Remove any leading or trailing spaces
+    size_t start = token.find_first_not_of(' ');
+    size_t end = token.find_last_not_of(' ');
+    if (start != std::string::npos && end != std::string::npos) {
+      token = token.substr(start, end - start + 1);
     }
 
-    return result;
+    // Convert the string token to float
+    float value = std::stof(token);
+    result.push_back(value);
+  }
+
+  return result;
 }
 
 void loop() {
-   // Calculate current angles from encoders
+  // Read raw accelerometer and gyroscope data
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+  // Convert raw values to 'g' and degrees/second
+  float ax_g = ax / 16384.0;
+  float ay_g = ay / 16384.0;
+  float az_g = az / 16384.0;
+
+  // Calculate pitch and roll
+  float roll = atan2(ay_g, az_g) * 180.0 / PI;
+  float pitch = atan2(-ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / PI;
   
+  // Update the current angles
+  currentAngle1 = (encoder1Count * 360.0) / stepsPerRevolution;
+  currentAngle2 = (encoder2Count * 360.0) / stepsPerRevolution;
+  currentAngle3 = (encoder3Count * 360.0) / stepsPerRevolution;
 
-  //////////////////////////////////////////////////////
-  // if (Serial.available() > 0) {
-  //   // Read desired angles from Serial input
-  //   String data = Serial.readStringUntil('\n');
-  //   std::vector<float> floats = splitStringToFloats(data.c_str(), ", ");
+ // Update PID inputs
+  pid1.Compute();
+  pid2.Compute();
+  pid3.Compute();
 
-  //   // Keep printing tokens while one of the
-  //   // delimiters present in str[].
-  //   float theta1, theta2, theta3;
-  //   if (floats.size() >= 3) {  // Ensure there are at least three elements
-  //       theta1 = floats[0];
-  //       theta2 = floats[1];
-  //       theta3 = floats[2];
-  //   }
-
-  //   Serial.print("\n");
-  //   Serial.print("Theta1: " + String(theta1) + " Theta2: " + String(theta2) + " Theta3: " + String(theta3));
-
-  //   setpoint1 = theta1;
-  //   setpoint2 = theta2;
-  //   setpoint3 = theta3;
-  // }
-  //////////////////////////////////RECEIVE DATA NEED FIX////////////////////
-
-  Serial.println("Enter the number of columns: ");
-  if (Serial.available() == 0) {
-      ; // Wait for user input
-  }
-  numberPos = Serial.parseInt();
-
-  // Allocate memory for the original array
-  float **arr = (float **)malloc(rows * sizeof(float *));
-  for (int i = 0; i < rows; i++) {
-      arr[i] = (float *)malloc(numberPos * sizeof(float));
-  }
-
-
-  /////////////////////////////////////////// For testing only////////////////////////////////////
-  srand((unsigned)time(NULL));
-  for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          float random_num = (float)(rand() % 1000) / 100.0; // Random float between 0.00 and 24.99
-          arr[i][j] = random_num;
-      }
-  }
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  Serial.println("Original Array:");
-  for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          Serial.printf("%.2f\t", arr[i][j]);
-      }
-      Serial.println();
-  }
-
-  // test only
-  // float arr[3][2];
+  // Set the motor speeds using PWM
+  setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
+  setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
+  setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+ 
   
-  // Proceed with the rest of the program logic
-  Serial.println("Array has been populated. Proceeding with the loop.");
+  // Debugging: Print current angles
+  Serial.print("\n");
+  Serial.print("Motor1: " + String(setpoint1) + " | Motor2: " + String(setpoint2) + " | Motor3: " + String(setpoint3));
+  Serial.print(" | Angle1: ");
+  Serial.print(String(currentAngle1));
+  Serial.print(" | Angle2: ");
+  Serial.print(String(currentAngle2));
+  Serial.print(" | Angle3: ");
+  Serial.print(String(currentAngle3));
+  Serial.print(" | Pitch: ");
+  Serial.print(String(pitch));
+  Serial.print(" | Roll: ");
+  Serial.print(String(roll));
 
-  // Allocate memory for the copy array
-  float **storepos = (float **)malloc(rows * sizeof(float *));
-  for (int i = 0; i < rows; i++) {
-      storepos[i] = (float *)malloc(numberPos * sizeof(float));
-  }
 
+  // Array to store positions
   
-  // init arr2
+  // Initialize the array
   for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          storepos[i][j] = 360;
-      }
+    for (int j = 0; j < 300; j++) {
+      storepos[i][j] = 0;
+    }
   }
 
-  // Copy the original array to the new array
-  for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          storepos[i][j] = arr[i][j];
+  // Read new positions from Serial if available
+  if (Serial.available() > 0) {
+    String data = Serial.readStringUntil('\n');
+    std::vector<float> floats = splitStringToFloats(data.c_str(), ", ");
+
+    for (int i = 0; i < floats.size() - 1; i++) {
+      if (i % 3 == 0) {
+        storepos[0][i / 3] = floats[i];
+        storepos[1][i / 3] = floats[i + 1];
+        storepos[2][i / 3] = floats[i + 2];
+        numberPos = floats[i + 3];
       }
-  }
+    }
 
-  // Print the copied array
-  Serial.println("\nCopy Array:");
-  for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          Serial.printf("%.2f\t", storepos[i][j]);
-      }
-      Serial.println();
-  }
-
-    // Verify that the array has no uninitialized values (NANs)
-  bool allValuesInitialized = true;
-  for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < numberPos; j++) {
-          if (storepos[i][j] >= 360) {
-              allValuesInitialized = false;
-              break;
-          }
-      }
-  }
-
-  // Set the flag if the array is fully populated
-  isArrayPopulated = allValuesInitialized;
-
-// Check if the array has been populated
-  if (isArrayPopulated) {
-    // Print motor values
     for (int i = 0; i < numberPos; i++) {
-      //if(currentAngle1 == setpoint1 && currentAngle2 == setpoint2 && currentAngle3 == setpoint3 ){
         setpoint1 = storepos[0][i];
         setpoint2 = storepos[1][i];
         setpoint3 = storepos[2][i];
-      //}
-      while (currentAngle1 != setpoint1 || currentAngle2 != setpoint2 || currentAngle3 != setpoint3) {
-                if (currentAngle1 < setpoint1) currentAngle1 += 0.01;
-                else if (currentAngle1 > setpoint1) currentAngle1 -= 0.01;
 
-                if (currentAngle2 < setpoint2) currentAngle2 += 0.01;
-                else if (currentAngle2 > setpoint2) currentAngle2 -= 0.01;
+    while ( !(setpoint1 - toler <= currentAngle1 && currentAngle1 <= setpoint1 + toler) ||
+            !(setpoint2 - toler <= currentAngle2 && currentAngle2 <= setpoint2 + toler) ||
+            !(setpoint3 - toler <= currentAngle3 && currentAngle3 <= setpoint3 + toler)) {
 
-                if (currentAngle3 < setpoint3) currentAngle3 += 0.01;
-                else if (currentAngle3 > setpoint3) currentAngle3 -= 0.01;
-        
-                // Update PID inputs
-                pid1.Compute();
-                pid2.Compute();
-                pid3.Compute();
 
-                // Set the motor speeds using PWM
-                setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
-                setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
-                setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+        // Read raw accelerometer and gyroscope data
+        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-                Serial.printf("currentAngle 1: %.2f\t", currentAngle1);
-                Serial.printf("currentAngle 2: %.2f\t", currentAngle2);
-                Serial.printf("currentAngle 3: %.2f\n", currentAngle3);
+        // Convert raw values to 'g' and degrees/second
+        float ax_g = ax / 16384.0;
+        float ay_g = ay / 16384.0;
+        float az_g = az / 16384.0;
 
-                Serial.printf("setpoint 1: %.2f\t", setpoint1);
-                Serial.printf("setpoint 2: %.2f\t", setpoint2);
-                Serial.printf("setpoint 3: %.2f\n", setpoint3);
+        // Calculate pitch and roll
+        float roll = atan2(ay_g, az_g) * 180.0 / PI;
+        float pitch = atan2(-ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / PI;
+        // Update the current angles
+        currentAngle1 = (encoder1Count * 360.0) / stepsPerRevolution;
+        currentAngle2 = (encoder2Count * 360.0) / stepsPerRevolution;
+        currentAngle3 = (encoder3Count * 360.0) / stepsPerRevolution;
 
-                delay(10); // Simulate time for the motors to reach the target angles
-            }
-        
+        // Update PID inputs
+        pid1.Compute();
+        pid2.Compute();
+        pid3.Compute();
+
+        // Set the motor speeds using PWM
+        setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
+        setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
+        setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+
+        // Debugging: Print setpoints and current angles
+        Serial.print("\n");
+        Serial.print("Motor1: " + String(setpoint1) + " | Motor2: " + String(setpoint2) + " | Motor3: " + String(setpoint3));
+        Serial.print(" | Angle1: ");
+        Serial.print(String(currentAngle1));
+        Serial.print(" | Angle2: ");
+        Serial.print(String(currentAngle2));
+        Serial.print(" | Angle3: ");
+        Serial.print(String(currentAngle3));
+        Serial.print(" | Pitch: ");
+        Serial.print(String(pitch));
+        Serial.print(" | Roll: ");
+        Serial.print(String(roll));
+      }
     }
-
-    // Free allocated memory
-    for (int i = 0; i < rows; i++) {
-        free(arr[i]);
-    }
-    free(arr);
-
-
-    for (int i = 0; i < rows; i++) {
-        free(storepos[i]);
-    }
-    free(storepos);
-
-    isArrayPopulated = false;
-  } else {
-      // Wait until the array receives values
-      Serial.println("Not populated");
-      delay(500);
   }
-
-  
 }
-
