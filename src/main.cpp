@@ -15,22 +15,22 @@ float random_num;
 int numberPos = 0; // this will be changed with MATLAB
 int rows = 3;
 bool isArrayPopulated = false;
-const int toler = 4;
+const int toler = 5;
 int16_t ax, ay, az;
 int16_t gx, gy, gz;
-
+int pGain = 19.3;
 // Constants for PID control for each motor
-const double Kp1 = 5;  // Proportional gain for motor 1
+const double Kp1 = pGain;  // Proportional gain for motor 1
 const double Ki1 = 0.0;  // Integral gain for motor 1
-const double Kd1 = 0.0;  // Derivative gain for motor 1
+const double Kd1 = 0.1;  // Derivative gain for motor 1
 
-const double Kp2 = 5;  // Proportional gain for motor 2
+const double Kp2 = pGain;  // Proportional gain for motor 2
 const double Ki2 = 0.0;  // Integral gain for motor 2
-const double Kd2 = 0.0;  // Derivative gain for motor 2
+const double Kd2 = 0.1;  // Derivative gain for motor 2
 
-const double Kp3 = 5;  // Proportional gain for motor 3
+const double Kp3 = pGain;  // Proportional gain for motor 3
 const double Ki3 = 0.0;  // Integral gain for motor 3
-const double Kd3 = 0.0;  // Derivative gain for motor 3
+const double Kd3 = 0.1;  // Derivative gain for motor 3
 
 // Variables for PID control
 double setpoint1 = 0.0, setpoint2 = 0.0, setpoint3 = 0.0;
