@@ -16,9 +16,7 @@ int numberPos = 0; // this will be changed with MATLAB
 int rows = 3;
 bool isArrayPopulated = false;
 const int toler = 5;
-int16_t ax, ay, az;
-int16_t gx, gy, gz;
-int pGain = 19.3;
+int pGain = 10.5;
 // Constants for PID control for each motor
 const double Kp1 = pGain;  // Proportional gain for motor 1
 const double Ki1 = 0.0;  // Integral gain for motor 1
@@ -60,8 +58,6 @@ PID pid3(&currentAngle3, &motorSpeed3, &setpoint3, Kp3, Ki3, Kd3, DIRECT);
 
 ESP32Encoder encoder1, encoder2, encoder3;
 
-MPU6050 mpu;
-
 // Encoder resolution (steps per revolution)
 const int stepsPerRevolution =  11 * 30;  // Replace with your encoder's resolution
 
@@ -73,15 +69,6 @@ volatile int encoder3Count = 0;
 volatile bool encoder1Flag = false;
 volatile bool encoder2Flag = false;
 volatile bool encoder3Flag = false;
-
-// Function to set the DLPF mode of the MPU6050
-void setDLPFMode(uint8_t mode) {
-  // Set the DLPF mode of the MPU6050
-  Wire.beginTransmission(MPU6050_DEFAULT_ADDRESS);
-  Wire.write(0x1A); // DLPF_CFG register
-  Wire.write(mode);
-  Wire.endTransmission(true);
-}
 
 // Interrupt service routines for encoder channels
 void IRAM_ATTR encoderA_ISR1() {
@@ -114,26 +101,7 @@ void IRAM_ATTR encoderA_ISR3() {
 void setup() {
   // Initialize Serial communication
   Serial.begin(115200);
-  
 
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
-
-  // IMU Initialization
-  Wire.begin();
-  mpu.initialize();
-
-  if (!mpu.testConnection()) {
-    // Serial.println("MPU6050 connection failed");
-    while (1);
-  }
-
-  // Set the DLPF mode
-  setDLPFMode(MPU6050_DLPF_BW_5);
-
-  // Serial.println("MPU6050 connected successfully");
-  
   // Initialize encoders
   encoder1.attachHalfQuad(ENCODER_A_PIN1, ENCODER_B_PIN1);
   encoder2.attachHalfQuad(ENCODER_A_PIN2, ENCODER_B_PIN2);
@@ -206,18 +174,6 @@ std::vector<float> splitStringToFloats(const std::string& input, const std::stri
 }
 
 void loop() {
-  // Read raw accelerometer and gyroscope data
-  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-  // Convert raw values to 'g' and degrees/second
-  float ax_g = ax / 16384.0;
-  float ay_g = ay / 16384.0;
-  float az_g = az / 16384.0;
-
-  // Calculate pitch and roll
-  float roll = atan2(ay_g, az_g) * 180.0 / PI;
-  float pitch = atan2(-ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / PI;
-  
   // Update the current angles
   currentAngle1 = (encoder1Count * 360.0) / stepsPerRevolution;
   currentAngle2 = (encoder2Count * 360.0) / stepsPerRevolution;
@@ -244,9 +200,9 @@ void loop() {
   Serial.print(" | Angle3: ");
   Serial.print(String(currentAngle3));
   Serial.print(" | Pitch: ");
-  Serial.print(String(pitch));
+  Serial.print(String(1));
   Serial.print(" | Roll: ");
-  Serial.print(String(roll));
+  Serial.print(String(1.5));
 
 
   // Array to store positions
@@ -271,7 +227,23 @@ void loop() {
         numberPos = floats[i + 3];
       }
     }
+    
+    for (int i = 0; i < numberPos; i++) {
+        setpoint1 = storepos[0][i];
+        setpoint2 = storepos[1][i];
+        setpoint3 = storepos[2][i];
 
+        // Slow down the motors for the last 10 positions
+        if (i >= numberPos - 10) {
+            pid1.SetOutputLimits(-100, 100);
+            pid2.SetOutputLimits(-100, 100);
+            pid3.SetOutputLimits(-100, 100);
+        } else {
+            pid1.SetOutputLimits(-255, 255);
+            pid2.SetOutputLimits(-255, 255);
+            pid3.SetOutputLimits(-255, 255);
+        }
+        
     for (int i = 0; i < numberPos; i++) {
         setpoint1 = storepos[0][i];
         setpoint2 = storepos[1][i];
@@ -281,19 +253,6 @@ void loop() {
             !(setpoint2 - toler <= currentAngle2 && currentAngle2 <= setpoint2 + toler) ||
             !(setpoint3 - toler <= currentAngle3 && currentAngle3 <= setpoint3 + toler)) {
 
-
-        // Read raw accelerometer and gyroscope data
-        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-        // Convert raw values to 'g' and degrees/second
-        float ax_g = ax / 16384.0;
-        float ay_g = ay / 16384.0;
-        float az_g = az / 16384.0;
-
-        // Calculate pitch and roll
-        float roll = atan2(ay_g, az_g) * 180.0 / PI;
-        float pitch = atan2(-ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / PI;
-        // Update the current angles
         currentAngle1 = (encoder1Count * 360.0) / stepsPerRevolution;
         currentAngle2 = (encoder2Count * 360.0) / stepsPerRevolution;
         currentAngle3 = (encoder3Count * 360.0) / stepsPerRevolution;
@@ -318,9 +277,10 @@ void loop() {
         Serial.print(" | Angle3: ");
         Serial.print(String(currentAngle3));
         Serial.print(" | Pitch: ");
-        Serial.print(String(pitch));
+        Serial.print(String(1));
         Serial.print(" | Roll: ");
-        Serial.print(String(roll));
+        Serial.print(String(1.5));
+        }
       }
     }
   }
