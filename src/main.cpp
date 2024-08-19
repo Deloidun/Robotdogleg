@@ -7,16 +7,15 @@
 #include <string>
 #include <stdlib.h>
 #include <time.h>
-#include <Wire.h>
-#include <MPU6050.h>
+
 
 int i, j;
 float random_num;
 int numberPos = 0; // this will be changed with MATLAB
 int rows = 3;
 bool isArrayPopulated = false;
-const int toler = 5;
-int pGain = 10.5;
+const int toler = 4;
+int pGain = 14.5;
 // Constants for PID control for each motor
 const double Kp1 = pGain;  // Proportional gain for motor 1
 const double Ki1 = 0.0;  // Integral gain for motor 1
@@ -24,11 +23,11 @@ const double Kd1 = 0.1;  // Derivative gain for motor 1
 
 const double Kp2 = pGain;  // Proportional gain for motor 2
 const double Ki2 = 0.0;  // Integral gain for motor 2
-const double Kd2 = 0.1;  // Derivative gain for motor 2
+const double Kd2 = 0.10;  // Derivative gain for motor 2
 
 const double Kp3 = pGain;  // Proportional gain for motor 3
 const double Ki3 = 0.0;  // Integral gain for motor 3
-const double Kd3 = 0.1;  // Derivative gain for motor 3
+const double Kd3 = 0.10;  // Derivative gain for motor 3
 
 // Variables for PID control
 double setpoint1 = 0.0, setpoint2 = 0.0, setpoint3 = 0.0;
@@ -200,9 +199,9 @@ void loop() {
   Serial.print(" | Angle3: ");
   Serial.print(String(currentAngle3));
   Serial.print(" | Pitch: ");
-  Serial.print(String(1));
+  Serial.print(String(motorSpeed1));
   Serial.print(" | Roll: ");
-  Serial.print(String(1.5));
+  Serial.print(String(motorSpeed2));
 
 
   // Array to store positions
@@ -233,25 +232,14 @@ void loop() {
         setpoint2 = storepos[1][i];
         setpoint3 = storepos[2][i];
 
-        // Slow down the motors for the last 10 positions
-        if (i >= numberPos - 10) {
-            pid1.SetOutputLimits(-100, 100);
-            pid2.SetOutputLimits(-100, 100);
-            pid3.SetOutputLimits(-100, 100);
-        } else {
-            pid1.SetOutputLimits(-255, 255);
-            pid2.SetOutputLimits(-255, 255);
-            pid3.SetOutputLimits(-255, 255);
-        }
-        
-    for (int i = 0; i < numberPos; i++) {
-        setpoint1 = storepos[0][i];
-        setpoint2 = storepos[1][i];
-        setpoint3 = storepos[2][i];
+    double ratio = 1.0;
+    if (i >= 90 && i <= 100) {
+        ratio = (100 - i) / 10; // Gradually decrease ratio from 1.0 to 0.0
+    }
 
-    while ( !(setpoint1 - toler <= currentAngle1 && currentAngle1 <= setpoint1 + toler) ||
-            !(setpoint2 - toler <= currentAngle2 && currentAngle2 <= setpoint2 + toler) ||
-            !(setpoint3 - toler <= currentAngle3 && currentAngle3 <= setpoint3 + toler)) {
+    while (!(setpoint1 - toler <= currentAngle1 && currentAngle1 <= setpoint1 + toler) ||
+           !(setpoint2 - toler <= currentAngle2 && currentAngle2 <= setpoint2 + toler) ||
+           !(setpoint3 - toler <= currentAngle3 && currentAngle3 <= setpoint3 + toler)) {
 
         currentAngle1 = (encoder1Count * 360.0) / stepsPerRevolution;
         currentAngle2 = (encoder2Count * 360.0) / stepsPerRevolution;
@@ -262,10 +250,15 @@ void loop() {
         pid2.Compute();
         pid3.Compute();
 
+        // Apply the ratio to motor speeds
+        double adjustedMotorSpeed1 = motorSpeed1 * ratio;
+        double adjustedMotorSpeed2 = motorSpeed2 * ratio;
+        double adjustedMotorSpeed3 = motorSpeed3 * ratio;
+
         // Set the motor speeds using PWM
-        setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(motorSpeed1, -255, 255));
-        setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(motorSpeed2, -255, 255));
-        setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(motorSpeed3, -255, 255));
+        setMotorSpeed(MOTOR_PIN1_1, MOTOR_PIN1_2, constrain(adjustedMotorSpeed1, -255, 255));
+        setMotorSpeed(MOTOR_PIN2_1, MOTOR_PIN2_2, constrain(adjustedMotorSpeed2, -255, 255));
+        setMotorSpeed(MOTOR_PIN3_1, MOTOR_PIN3_2, constrain(adjustedMotorSpeed3, -255, 255));
 
         // Debugging: Print setpoints and current angles
         Serial.print("\n");
@@ -277,11 +270,10 @@ void loop() {
         Serial.print(" | Angle3: ");
         Serial.print(String(currentAngle3));
         Serial.print(" | Pitch: ");
-        Serial.print(String(1));
+        Serial.print(String(adjustedMotorSpeed1));
         Serial.print(" | Roll: ");
-        Serial.print(String(1.5));
+        Serial.print(String(adjustedMotorSpeed2));
         }
       }
     }
   }
-}
